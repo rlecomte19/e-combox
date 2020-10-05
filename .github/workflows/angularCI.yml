@@ -1,23 +1,60 @@
 name: Angular CI
 
-on: [push]
+on: 
+  push:
+    # Publish `master` as Docker `latest` image.
+    branches:
+      - master
+
+    # Publish `v1.2.3` tags as releases.
+    tags:
+      - v*
 
 jobs:
-   build:
+  # Run tests.
+  # See also https://docs.docker.com/docker-hub/builds/automated-testing/
+  build-and-publish:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [8.x]
 
-     runs-on: ubuntu-latest
-
-     strategy:
-       matrix:
-         node-version: [8.x]
-
-     steps:
-     - uses: actions/checkout@v2
-     - name: Use Node.js ${{ matrix.node-version }}
-       uses: actions/setup-node@v1
-       with:
-         node-version: ${{ matrix.node-version }}
-     - run: npm install
-     - run: npm test && npm run build
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: npm install
+        uses: actions/setup-node@v1
+        with:
+          run: npm install
+          node-version: ${{ matrix.node-version }}
+      
+      - name: npm test
+        uses: actions/setup-node@v1
+        with: 
+          args: npm test
+          node-version: ${{ matrix.node-version }}
+      - name: Build image
+        run: docker build . --file dockerfile --tag test-integration-github
+      
+      - name: docker login
+        run: docker login docker.io -u ${{ secrets.DOCKER_USERNAME }} --password ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: docker push
+        run: |
+          IMAGE_ID=thiry/test-integration-github
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          # Strip "v" prefix from tag name
+          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+          # Use Docker `latest` tag convention
+          [ "$VERSION" == "master" ] && VERSION=latest
+          echo IMAGE_ID=$IMAGE_ID
+          echo VERSION=$VERSION
+          docker tag test-integration-github $IMAGE_ID:$VERSION
+          docker push $IMAGE_ID:$VERSION
        env:
          CI: true
